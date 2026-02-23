@@ -205,7 +205,7 @@
   Project Folder Suggestion
 
   Competitions/
-    AIMO/
+    AIMO-Progress-Prize-3/
       PLAN.md
       notebooks/
         01_cot_baseline.ipynb
@@ -213,10 +213,7 @@
         03_majority_voting.ipynb
         04_submission.ipynb
       Dataset/
-        reference.csv
-        test.csv
-        sample_submission.csv
-        AIMO3_Reference_Problems.pdf
+        sample_problems.json
 
   ---
   Want me to scaffold the project folder and start the first notebook (Phase 0/1 — CoT baseline with a
@@ -313,3 +310,134 @@
 
   The learning curve from 0 → working TIR submission is enormous. That's the real goal here — understanding
    how modern math AI systems are built from the ground up.
+
+   ---                                                                                                      
+  Step-by-Step: Running Notebook 01 on Kaggle                                                              
+                                                                                                           
+  Step 1 — Create the notebook correctly                                                                   
+                                                                                                           
+  From the screenshot you're in a blank Kaggle notebook. You need to upload 01_cot_baseline.ipynb instead
+  of starting blank.
+
+  1. Click File → Import Notebook
+  2. Upload /Users/pulin05/kaggling/kaggling/Competitions/AIMO/notebooks/01_cot_baseline.ipynb
+
+  ---
+  Step 2 — Enable GPU
+
+  This is critical. Without a GPU, the model will take hours.
+
+  1. Click Settings (top menu) → Session Options (or the gear icon on the right panel)
+  2. Set Accelerator → GPU T4 x2
+  3. Click Save
+
+  You'll see the session restart. The session indicator at the top changes from grey to green.
+
+  ---
+  Step 3 — Enable Internet
+
+  The notebook downloads model weights from HuggingFace. You need internet ON for development notebooks (it
+   gets turned off for final submission reruns).
+
+  1. Click Settings → Session Options
+  2. Toggle Internet → ON
+  3. Click Save
+
+  ---
+  Step 4 — Add the Competition Dataset
+
+  From the screenshot your right panel already shows the competition attached. Confirm it:
+
+  1. In the right panel under Input, you should see "AI Mathematical Olympiad - Progress Prize..." listed
+  2. If not: click + Add Input → search "ai-mathematical-olympiad-progress-prize-3" → click +
+
+  This mounts the competition files at /kaggle/input/ai-mathematical-olympiad-progress-prize-3/.
+
+  ---
+  Step 5 — Fix the file path in the notebook
+
+  The notebook currently reads:
+  REFERENCE_CSV = '../Dataset/reference.csv'   # local path
+  On Kaggle, the file is at a different location. You need to change one line before running.
+
+  In the problems loading cell (the one with pd.read_csv), change:
+  # Change this:
+  REFERENCE_CSV = '../Dataset/reference.csv'
+
+  # To this:
+  REFERENCE_CSV = '/kaggle/input/ai-mathematical-olympiad-progress-prize-3/reference.csv'
+
+  ---
+  Step 6 — Run All
+
+  Click Run All (the ▶▶ button in the top toolbar).
+
+  Expected sequence:
+  - Cell 1 (!pip install): ~2 minutes — installs transformers, bitsandbytes, accelerate
+  - Model loading cell: ~3–5 minutes — downloads ~4GB of weights from HuggingFace, quantizes to 4-bit
+  - Each experiment (3 loops × 10 problems): ~10–15 min each
+
+  Total: ~45–60 minutes.
+
+  ---
+  Why the Uninstall-Then-Reinstall Pattern?
+
+  This is the core of the utility notebook you linked. Here's the full explanation:
+
+  The problem: Ka   ggle's pre-installed packages are frozen
+
+  Kaggle notebooks run inside a Docker container that has hundreds of packages pre-installed at fixed
+  versions. These versions are often 6–12 months old. For example, Kaggle might have:
+
+  transformers==4.38.0    ← pre-installed (old)
+  bitsandbytes==0.41.0    ← pre-installed (old)
+
+  But the latest Qwen2.5-Math models require:
+  transformers>=4.45.0    ← needs new API
+  bitsandbytes>=0.43.0    ← needs new CUDA kernels
+
+  Simply doing pip install transformers does nothing if transformers is already installed — pip sees it's
+  present and skips it. pip install --upgrade sometimes fails because the old version's files conflict with
+   the new version's files mid-install.
+
+  The solution: uninstall first, then install clean
+
+  # Step 1: Remove the old version completely
+  !pip uninstall -y transformers bitsandbytes
+
+  # Step 2: Install the exact version you need
+  !pip install transformers==4.47.0 bitsandbytes==0.44.0
+
+  This guarantees no leftover files from the old version interfere with the new one.
+
+  Why the AIMO utility notebook takes it further
+
+  The competition submission has internet disabled during the official rerun (when your score is computed).
+   So competitors pre-download everything:
+
+  Utility Notebook 1 (run once, with internet ON):
+    → pip install packages into /kaggle/working/
+    → Save as a Kaggle Dataset
+
+  Your submission notebook (internet OFF):
+    → !pip install --no-index --find-links=/kaggle/input/my-packages/ transformers
+    → Loads packages from your pre-saved dataset
+
+  This two-notebook pattern is the standard AIMO workflow. You're not there yet — it's only needed for the
+  final submission. For development (notebooks 01–04), just run with internet ON and the simple !pip
+  install -q transformers bitsandbytes accelerate is enough.
+
+  ---
+  Quick Reference Card
+
+  For development (now):               For competition submission (later):
+  ─────────────────────────            ──────────────────────────────────
+  Internet: ON                         Internet: OFF
+  GPU: T4 x2                           GPU: T4 x2
+  pip install directly                 Load packages from pre-saved dataset
+  Path: /kaggle/input/aimo.../         Path: /kaggle/input/aimo.../
+  Model: downloaded live               Model: pre-saved as Kaggle dataset
+
+  Sources:
+  - HuggingFace bitsandbytes quantization docs
+  - Using transformers on Kaggle — HuggingFace Forums
