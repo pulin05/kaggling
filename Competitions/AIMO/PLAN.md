@@ -35,13 +35,14 @@ Run this N=48 times in parallel → Majority vote → Final answer
 **Notebook:** `01_cot_baseline.ipynb`
 **Concepts:** CoT, zero-shot vs few-shot, temperature, sampling
 **Model:** `Qwen/Qwen2.5-Math-7B-Instruct`
-**Status:** [ ] In progress
+**Status:** [x] Scaffolded
 
 ## Phase 2 — Tool-Integrated Reasoning (TIR) Loop
 **Goal:** Build the agentic inference loop: LLM + code execution + self-correction.
 **Notebook:** `02_tir_loop.ipynb`
-**Concepts:** Agentic loops, sympy, code sandboxing, TORA format
-**Status:** [ ] Pending
+**Concepts:** Agentic loops, sympy, code sandboxing, iterative TIR
+**Key functions:** `extract_python_blocks`, `safe_execute`, `extract_boxed_answer`, `run_tir_loop`
+**Status:** [x] Scaffolded
 
 ## Phase 3 — Self-Consistency + Majority Voting
 **Goal:** Sample N solutions, majority-vote the answer. Quantify variance reduction.
