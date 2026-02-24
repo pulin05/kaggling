@@ -441,3 +441,115 @@
   Sources:
   - HuggingFace bitsandbytes quantization docs
   - Using transformers on Kaggle — HuggingFace Forums
+
+  ---
+  The core problem: bitsandbytes is CUDA-only                                                              
+                                                                                                         
+  The 4-bit quantization we use on Kaggle relies on bitsandbytes, which only works on NVIDIA CUDA GPUs.    
+  Apple Silicon uses Metal (MPS) — a completely different GPU stack. So the exact same notebook code will  
+  fail locally.
+
+  ---
+  What you have on Apple Silicon
+
+  Apple Silicon Macs have unified memory — the CPU and GPU share the same RAM pool. This is actually good
+  for LLMs:
+
+  ┌─────────┬───────────────────────────────────────────────────────────┐
+  │ Mac RAM │                         What fits                         │
+  ├─────────┼───────────────────────────────────────────────────────────┤
+  │ 8 GB    │ 7B model with 4-bit quantization (~4.5 GB)                │
+  ├─────────┼───────────────────────────────────────────────────────────┤
+  │ 16 GB   │ 7B model in float16 (~14 GB), or 7B quantized comfortably │
+  ├─────────┼───────────────────────────────────────────────────────────┤
+  │ 32 GB+  │ 7B easily; can try 14B or 32B quantized                   │
+  └─────────┴───────────────────────────────────────────────────────────┘
+
+  ---
+  Best approach: mlx-lm (Apple's own ML framework)
+
+  MLX is Apple's open-source ML framework built specifically for Apple Silicon. It uses Metal for GPU
+  acceleration and handles quantization natively. It's the fastest way to run LLMs locally on a Mac.
+
+  Qwen2.5-Math-7B-Instruct is available in MLX format on HuggingFace already.
+
+  Install
+
+  pip install mlx-lm
+
+  Code — drop-in replacement for the Kaggle model loading
+
+  from mlx_lm import load, generate
+
+  # Loads the MLX-converted version of Qwen2.5-Math-7B-Instruct
+  # Uses 4-bit quantization by default, runs on Metal GPU
+  model, tokenizer = load("mlx-community/Qwen2.5-Math-7B-Instruct-4bit")
+
+  def generate_response(prompt: str, max_new_tokens: int = 1024, temperature: float = 0.0) -> str:
+      messages = [{"role": "user", "content": prompt}]
+      text = tokenizer.apply_chat_template(
+          messages,
+          tokenize=False,
+          add_generation_prompt=True,
+      )
+      return generate(
+          model, tokenizer,
+          prompt=text,
+          max_tokens=max_new_tokens,
+          temp=temperature,
+          verbose=False,
+      )
+
+  That's it — generate_response has the same signature as the Kaggle version. The rest of the notebook runs
+   unchanged.
+
+  ---
+  Alternative: transformers with MPS (no extra install)
+
+  If you want to stay with the exact same transformers code but skip quantization:
+
+  import torch
+  from transformers import AutoTokenizer, AutoModelForCausalLM
+
+  model = AutoModelForCausalLM.from_pretrained(
+      "Qwen/Qwen2.5-Math-7B-Instruct",
+      torch_dtype=torch.float16,   # half precision instead of 4-bit
+      device_map="mps",            # Apple Metal GPU
+  )
+
+  Downside: Float16 uses ~14 GB. Fine on 16 GB+ Macs, tight on 8 GB.
+
+  ---
+  Speed expectation
+
+  ┌─────────────────────────────┬────────────────────────────────────┐
+  │          Hardware           │ Time per problem (7B, 1024 tokens) │
+  ├─────────────────────────────┼────────────────────────────────────┤
+  │ Kaggle T4 x2 (CUDA)         │ ~30–60 sec                         │
+  ├─────────────────────────────┼────────────────────────────────────┤
+  │ MacBook M3 Pro 36GB (MLX)   │ ~60–120 sec                        │
+  ├─────────────────────────────┼────────────────────────────────────┤
+  │ MacBook M2 16GB (MLX)       │ ~90–180 sec                        │
+  ├─────────────────────────────┼────────────────────────────────────┤
+  │ MacBook M1 8GB (MLX, tight) │ ~3–5 min                           │
+  └─────────────────────────────┴────────────────────────────────────┘
+
+  For running 1–2 problems interactively during development, Mac is totally practical. For the full
+  10-problem benchmark, expect 15–30 minutes on a modern M-series chip.
+
+  ---
+  Recommendation
+
+  Use Mac for development and experimentation — writing code, testing one problem at a time, iterating
+  quickly. Use Kaggle for full benchmark runs and final submission. The code stays identical except the
+  model loading cell, which you can make environment-aware:
+
+  import platform
+
+  if platform.system() == "Darwin":           # macOS
+      from mlx_lm import load, generate
+      model, tokenizer = load("mlx-community/Qwen2.5-Math-7B-Instruct-4bit")
+  else:                                        # Kaggle / Linux
+      from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+      import torch
+      # ... existing 4-bit CUDA code ...
