@@ -44,9 +44,197 @@ This is **NOT** a solve-math-problems competition like AIMO. It's a **model impr
 ## Roadmap
 
 ### Phase 0 — Setup & Baseline (Week 1)
-- Get the Nemotron 3 Nano model running on Kaggle G4 notebook
-- Run baseline eval on the NVIDIA benchmark
-- Understand the benchmark problem format
+
+#### Step 1 — Understand the Model First (Before Any Code)
+
+The model is `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16`:
+
+```
+Architecture: Hybrid Mamba2-Transformer MoE
+Total params: 30B  |  Active params: 3.5B per token
+Layers: 52 total
+  - 23 Mamba-2 layers      (fast sequential state tracking)
+  - 23 MoE layers           (128 routed experts, only 6 active per token)
+  - 6  Attention layers     (GQA, 2 groups — memory efficient)
+Context: up to 1M tokens
+Training: 25 trillion tokens
+```
+
+**Why does architecture matter?** Mamba layers use state-space models (SSMs) — recurrent, not attention-based. This means:
+- Inference is fast at long contexts (linear, not quadratic like attention)
+- Not all Transformer optimizations apply
+- vLLM >= 0.12.0 is required (older versions don't support Mamba)
+
+The model has **two modes**:
+
+| Mode | When to use | Params |
+|---|---|---|
+| `enable_thinking=True` (default) | Reasoning tasks, math | `temp=1.0, top_p=1.0, max_new_tokens=10000` |
+| `enable_thinking=False` | Fast non-reasoning tasks | `do_sample=False, greedy` |
+
+For this competition: **always use thinking mode ON**.
+
+---
+
+#### Step 2 — Hardware Reality Check
+
+The competition runs on **Google Cloud G4 VMs** with **NVIDIA L4 GPUs** (24 GB VRAM each).
+
+The model in BF16 = ~60 GB → **doesn't fit on one L4**.
+
+Options:
+
+| Option | Model Variant | VRAM | Notes |
+|---|---|---|---|
+| **Recommended** | FP8 variant | ~15 GB | Fits on 1× L4 |
+| Multi-GPU | BF16 variant | ~60 GB | 3× L4, tensor parallel |
+| GGUF | unsloth GGUF | Variable | CPU/mixed, slower |
+
+**Start with FP8 on a single L4. Get it working first, optimize later.**
+
+---
+
+#### Step 3 — Environment Setup (Kaggle Notebook)
+
+```python
+# Install dependencies
+!pip install -U "vllm>=0.12.0" transformers accelerate compressed-tensors
+
+# Download the custom reasoning parser (required for vLLM)
+!wget https://huggingface.co/nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16/resolve/main/nano_v3_reasoning_parser.py
+
+# Check GPU
+import subprocess
+print(subprocess.run(['nvidia-smi'], capture_output=True, text=True).stdout)
+```
+
+---
+
+#### Step 4 — Load the Model (Two Approaches)
+
+**Option A: Transformers (simpler, slower — good for initial testing)**
+
+```python
+import torch
+from transformers import AutoTokenizer, AutoModelForCausalLM
+
+model_id = "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8"  # FP8 fits on 1x L4
+
+tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
+model = AutoModelForCausalLM.from_pretrained(
+    model_id,
+    torch_dtype="auto",
+    trust_remote_code=True,
+    device_map="auto"
+)
+```
+
+**Option B: vLLM server (production-grade — required for maj@64)**
+
+```bash
+vllm serve nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8 \
+  --served-model-name model \
+  --max-num-seqs 8 \
+  --tensor-parallel-size 1 \
+  --max-model-len 32768 \
+  --trust-remote-code \
+  --reasoning-parser-plugin nano_v3_reasoning_parser.py \
+  --reasoning-parser nano_v3 \
+  --port 8000
+```
+
+**Why vLLM matters**: The metric is `maj@64` — you need 64 generations per problem. vLLM's continuous batching makes this feasible; plain Transformers would be too slow.
+
+---
+
+#### Step 5 — Understand the Benchmark Format
+
+Check the competition's Data tab on Kaggle for exact format. A basic inference function:
+
+```python
+def solve_problem(problem_text: str) -> str:
+    messages = [
+        {
+            "role": "system",
+            "content": "You are a helpful math reasoning assistant. Think step by step."
+        },
+        {
+            "role": "user",
+            "content": problem_text
+        }
+    ]
+
+    tokenized = tokenizer.apply_chat_template(
+        messages,
+        tokenize=True,
+        add_generation_prompt=True,
+        return_tensors="pt"
+    ).to(model.device)
+
+    output = model.generate(
+        tokenized,
+        max_new_tokens=10000,
+        temperature=1.0,
+        top_p=1.0,
+        do_sample=True,
+        eos_token_id=tokenizer.eos_token_id
+    )
+    return tokenizer.decode(output[0][tokenized.shape[1]:], skip_special_tokens=True)
+```
+
+---
+
+#### Step 6 — Baseline Evaluation with NeMo Evaluator
+
+NVIDIA open-sourced their exact evaluation pipeline:
+
+```bash
+pip install nemo-evaluator-launcher
+
+export HF_TOKEN="your-hf-token"
+
+# Quick test: 10 samples from AIME 2025 (most relevant benchmark)
+nemo-evaluator-launcher run \
+  --config local_nvidia_nemotron_3_nano_30b_a3b.yaml \
+  -t ns_aime2025 \
+  -o evaluation.nemo_evaluator_config.config.params.limit_samples=10
+```
+
+**Baseline numbers to beat** (from NVIDIA's model card):
+
+| Benchmark | Baseline Score |
+|---|---|
+| AIME 2025 (with tools) | 89.1% |
+| MMLU-Pro | 78.3% |
+| GPQA (grad-level science) | 73.0% |
+| LiveCodeBench | 68.3% |
+
+---
+
+#### Step 7 — Quick Wins Already Available in Phase 0
+
+Phase 0 isn't just setup — you can already make meaningful improvements:
+
+1. **Reasoning budget**: Test `max_new_tokens` at 1000 / 5000 / 10000. More thinking = higher accuracy, but slower.
+2. **Sampling params**: `temp=1.0, top_p=1.0` is recommended, but test `temp=0.7` — lower temperature sometimes helps for math.
+3. **System prompt**: Default vs "Think step by step" vs math-specific prompts can shift accuracy by 2–5%.
+4. **Thinking mode**: Always `enable_thinking=True` for math reasoning.
+
+---
+
+#### Phase 0 Checklist
+
+```
+[ ] Accept competition on Kaggle, check Data tab for benchmark format
+[ ] Spin up Kaggle notebook with G4/L4 GPU accelerator
+[ ] Install vLLM >= 0.12.0 + download reasoning parser
+[ ] Load nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8 (fits on 1× L4)
+[ ] Run 1–2 sample problems with enable_thinking=True → verify output format
+[ ] Install nemo-evaluator-launcher, run ns_aime2025 with limit_samples=10
+[ ] Record baseline score → this is your floor for all future phases
+[ ] Experiment: 3 system prompts × 2 temperature settings → pick best combo
+[ ] Note inference speed (tokens/sec) → critical for time budget planning
+```
 
 ### Phase 1 — Prompt Engineering (Week 1–2)
 - Try CoT, TIR (tool-integrated reasoning with Python), structured output formats
