@@ -34,6 +34,47 @@ Token 5 ("cat") → looks back at tokens 1,2,3,4 → weights how relevant each i
 
 This model only uses **6 attention layers** out of 52. Attention is powerful but expensive — so use it sparingly, only where global context is critical.
 
+### What is "global context"?
+
+Consider this sentence:
+
+> *"The trophy didn't fit in the suitcase because **it** was too big."*
+
+What does **it** refer to — the trophy or the suitcase?
+
+To answer that, the token "it" needs to look back at both "trophy" and "suitcase" and reason about which one is too big. That's global context — understanding a token by comparing it to *specific other tokens far away* in the sequence.
+
+Attention does this perfectly:
+
+```
+"it" → scores every past token → trophy gets high score → "it" = trophy
+```
+
+### Why can't Mamba do this?
+
+Mamba compresses everything into a fixed-size state as it goes. Think of it like taking notes while reading:
+
+```
+Read "The trophy"     → state = {trophy: large object}
+Read "didn't fit"     → state = {trophy: large, fit: failed}
+Read "in suitcase"    → state = {trophy: large, suitcase: container, fit: failed}
+Read "because it..."  → state = {...summary so far...}
+```
+
+By the time you reach "it", the detailed information about "trophy" has been compressed and partially overwritten by everything that came after. You can't go back and look at the original "trophy" token directly.
+
+Mamba is great at tracking trends and patterns through a sequence, but bad at precise point lookups — "give me exactly what token 7 said."
+
+### So why only 6 attention layers?
+
+Most of language understanding doesn't need precise long-range lookups. Reading a sentence word by word, building up meaning incrementally — that's Mamba's job, and it's cheap.
+
+But occasionally the model hits a moment where it genuinely needs to ask *"wait, what exactly did that earlier token say?"* — that's when attention earns its cost.
+
+The designers found empirically: 6 attention layers scattered across 52 is enough to handle those precise-recall moments, while the 23 Mamba layers handle the rest cheaply.
+
+It's the same reason you don't call a meeting for every decision — you handle most things yourself (Mamba), and only convene the full team (Attention) when you actually need everyone's input.
+
 ---
 
 ## Layer Type 2: Mamba-2 Layers (the new kid)
