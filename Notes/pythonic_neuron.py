@@ -15,4 +15,4 @@ if activation_level > threshold:
     perceptron_output = 1
 else:
     perceptron_output = 0
-print(perceptron_output)
+print(f"Final output: " + perceptron_output)
