@@ -24,4 +24,17 @@ print(weights)
 bias_weight = np.random.random() / 1000
 print(bias_weight)
 
-for 
+activation_threshold = 0.5
+
+for id, x in enumerate(sample_data):
+    input_vector = np.array(x)
+    activation_level = np.dot(input_vector, weights) + (bias_weight * 1)
+    print(f"Activation level for sample {id}: {activation_level}")
+    if activation_level > activation_threshold:
+        perceptron_output = 1
+    else:
+        perceptron_output = 0
+    print(f"Perceptron output for sample {id}: {perceptron_output}")
+
+    print("Predicted {}".format(perceptron_output))
+    print("Expected: {}".format(expected_results[id]))
