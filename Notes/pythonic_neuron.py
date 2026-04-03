@@ -15,4 +15,12 @@ if activation_level > threshold:
     perceptron_output = 1
 else:
     perceptron_output = 0
-print(f"Final output: " + perceptron_output)
+print(f"Final output: {perceptron_output}")
+
+###########
+
+expected_output = 0
+new_weights = []
+for i, x in enumerate(example_input):
+    new_weights.append(weight_vector[i] + (expected_output - perceptron_output) * x)
+    print(f"Updated weight {i}: {new_weights[i]}")
