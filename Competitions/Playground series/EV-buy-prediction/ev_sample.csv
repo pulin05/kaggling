@@ -1,0 +1,3 @@
+id,Age,Annual_Income_USD,Daily_Commute_km,Number_of_Cars_Owned,Charging_Stations_Near_Home,Charging_Stations_Near_Work,Environmental_Concern_Level,Gender,City_Type,Current_Car_Type,Home_Charging_Possible,Subsidy_Available,Range_Anxiety_Level,Will_Buy_EV
+0,66,92887,23.400000000000002,2,3,7,1,Male,Suburban,Sedan,Yes,No,Low,No
+1,38,30000,5.0,1,2,2,4,Male,Rural,SUV,Yes,No,Low,No
